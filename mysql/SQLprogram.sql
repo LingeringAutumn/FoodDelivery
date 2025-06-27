@@ -14,8 +14,8 @@ CREATE TABLE `dispatcher`  (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb3 ROW_FORMAT = DYNAMIC;
 
 -- 初始化配送员数据
-INSERT INTO `dispatcher` VALUES ('D001', '王小强', '13888880001');
-INSERT INTO `dispatcher` VALUES ('D002', '李雪琴', '13888880002');
+INSERT INTO `dispatcher` VALUES ('D001', '王小强', '13700003333');
+INSERT INTO `dispatcher` VALUES ('D002', '李雪琴', '13700004444');
 INSERT INTO `dispatcher` VALUES ('D003', '周杰伦', '13888880003');
 INSERT INTO `dispatcher` VALUES ('D004', '韩梅梅', '13888880004');
 
@@ -134,9 +134,20 @@ CREATE TABLE `user`  (
 ) ENGINE = InnoDB AUTO_INCREMENT = 4 DEFAULT CHARSET = utf8mb3 ROW_FORMAT = DYNAMIC;
 
 -- 初始化用户数据
+-- 顾客（role = 0）
 INSERT INTO `user` VALUES (2, 'alice', 'passw0rd', '13988888888', 0);
 INSERT INTO `user` VALUES (3, 'bob', 'abc123456', '13777778888', 0);
 
+-- 管理员（role = 1）
+INSERT INTO `user` VALUES (4, 'admin01', 'admin123', '13999990000', 1);
+
+-- 商家（role = 2）
+INSERT INTO `user` VALUES (5, 'seller01', 'sellpass', '13800001111', 2);
+INSERT INTO `user` VALUES (6, 'seller02', 'sell1234', '13800002222', 2);
+
+-- 配送员（role = 3）
+INSERT INTO `user` VALUES (7, 'disp01', 'dpass001', '13700003333', 3);
+INSERT INTO `user` VALUES (8, 'disp02', 'dpass002', '13700004444', 3);
 -- 用户详细信息表，绑定账号ID
 DROP TABLE IF EXISTS `user_msg`;
 CREATE TABLE `user_msg`  (
@@ -160,7 +171,25 @@ CREATE TABLE `user_msg`  (
 -- 初始化用户信息数据
 INSERT INTO `user_msg` VALUES (2, '王一博', '男', 21, 'wyb@example.com', '13988888888', 'alice');
 INSERT INTO `user_msg` VALUES (3, '赵小花', '女', 19, 'zxh@example.com', '13777778888', 'bob');
+-- 管理员 admin01（id = 4）
+INSERT INTO `user_msg` VALUES
+(4, '李管理员', '男', 32, 'admin01@example.com', '13999990000', 'admin01');
 
+-- 商家 seller01（id = 5）
+INSERT INTO `user_msg` VALUES
+(5, '张商家', '女', 28, 'seller01@example.com', '13800001111', 'seller01');
+
+-- 商家 seller02（id = 6）
+INSERT INTO `user_msg` VALUES
+(6, '李老板', '男', 35, 'seller02@example.com', '13800002222', 'seller02');
+
+-- 配送员 disp01（id = 7）
+INSERT INTO `user_msg` VALUES
+(7, '赵配送', '男', 30, 'disp01@example.com', '13700003333', 'disp01');
+
+-- 配送员 disp02（id = 8）
+INSERT INTO `user_msg` VALUES
+(8, '孙快递', '女', 26, 'disp02@example.com', '13700004444', 'disp02');
 -- 物流配送表，记录订单配送情况
 DROP TABLE IF EXISTS `wuliu`;
 CREATE TABLE `wuliu`  (
@@ -215,6 +244,19 @@ FROM oorder
 JOIN wuliu ON oorder.order_id = wuliu.order_id
 JOIN dispatcher ON wuliu.disp_id = dispatcher.dispatcher_id
 WHERE oorder.checked IN (1, 2, 3, 4);
+
+-- 插入新订单（设置为状态 4 表示派送中）
+INSERT INTO `oorder` (order_id, shop_name, order_money, order_way, cons_phone, cons_name, cons_addre, checked, create_time)
+VALUES
+(4, '香辣鸡丁饭', 17, '网上订餐', '13900000004', '李华', '3栋201', 4, '2023-10-11 11:30:00'),
+(5, '排骨汤饭', 13, '网上订餐', '13900000005', '张三', '2栋105', 4, '2023-10-11 11:32:00');
+
+-- 插入对应物流记录（配送员为 D001，即王小强）
+INSERT INTO `wuliu` (order_id, cons_phone, disp_id, deliver_time, ended)
+VALUES
+(4, '13900000004', 'D001', '20分钟', 0),
+(5, '13900000005', 'D001', '15分钟', 0);
+
 
 -- 插入订单时更新订餐方式的计数
 DROP TRIGGER IF EXISTS `order_insert`;

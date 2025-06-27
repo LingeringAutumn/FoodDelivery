@@ -32,6 +32,20 @@ with app.app_context():
     with db.engine.connect() as conn:
         result = conn.execute(text("SELECT 1"))
         print(result.fetchone())
+
+
+def get_status_desc(status_code):
+    # 建议缓存到 Redis，或查数据库
+    status_dict = {
+        0: '未派单',
+        1: '已揽单',
+        2: '商家备货中',
+        3: '已发货',
+        4: '派送中',
+        5: '已送达'
+    }
+    return status_dict.get(status_code, '未知状态')
+
 # 用户登录接口
 @app.route("/api/user/login", methods=["POST"])
 @cross_origin()
@@ -90,6 +104,7 @@ def user_get_shop():
 
 
 # 用户提交订单
+# 用户提交订单
 @app.route("/api/user/addorder", methods=["POST"])
 @cross_origin()
 def user_addorder():
@@ -108,21 +123,52 @@ def user_addorder():
     create_time = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
     # 插入订单记录
-    sql = '''
+    sql_order = '''
         INSERT INTO oorder(
             shop_name, order_money, order_way,
             cons_phone, cons_name, cons_addre, create_time
-        ) VALUES ("%s", %d, "%s", "%s", "%s", "%s", "%s")
-    ''' % (
-        shop_name, order_money, order_way,
-        cons_phone, cons_name, cons_address, create_time
+        ) VALUES (:shop_name, :order_money, :order_way, :cons_phone, :cons_name, :cons_addre, :create_time)
+    '''
+    db.session.execute(
+        text(sql_order),
+        {
+            "shop_name": shop_name,
+            "order_money": order_money,
+            "order_way": order_way,
+            "cons_phone": cons_phone,
+            "cons_name": cons_name,
+            "cons_addre": cons_address,
+            "create_time": create_time
+        }
     )
+    db.session.commit()
 
-    db.session.execute(text(sql))
+    # 查询刚插入订单的 ID
+    order_id_result = db.session.execute(
+        text("SELECT LAST_INSERT_ID()")
+    ).first()
+    order_id = order_id_result[0] if order_id_result else None
+
+    # 插入物流记录（配送员写死为 D001，预计时间写死为“25分钟”）
+
+    sql_logistics = '''
+        INSERT INTO wuliu(
+            order_id, cons_phone, disp_id, deliver_time, ended
+        ) VALUES (:order_id, :cons_phone, :disp_id, :deliver_time, :ended)
+    '''
+    db.session.execute(
+        text(sql_logistics),
+        {
+            "order_id": order_id,
+            "cons_phone": cons_phone,
+            "disp_id": "D001",
+            "deliver_time": "25分钟",
+            "ended": 0
+        }
+    )
     db.session.commit()
 
     return jsonify(status=200, msg="成功下单")
-
 
 # 从 token 中提取用户手机号
 def get_token_phone(token):
@@ -149,7 +195,9 @@ def user_unsend():
                 "orderway": row[3],
                 "cons_name": row[5],
                 "cons_addre": row[6],
-                "create_time": row[8]
+                "create_time": row[8],
+                "status_desc": get_status_desc(row[7])  # row[7] 是 checked
+
             }
             order_list.append(order)
         return jsonify(status=200, tabledata=order_list)
@@ -230,6 +278,7 @@ def user_sended():
                 "disp_id": row[7],
                 "deliver_time": row[8],
                 "disp_phone": row[9]
+
             }
             sended_list.append(order)
 
@@ -506,6 +555,32 @@ def manager_unsend():
         db.session.commit()
         return jsonify(status=200, msg="成功派发")
 
+# 更新订单状态接口（所有用户通用）
+@app.route("/api/order/update_status", methods=["POST"])
+@cross_origin()
+def update_order_status():
+    data = request.json
+    order_id = int(data.get("order_id"))
+    new_status = int(data.get("checked"))  # 1~5
+
+    #token = request.headers.get('token')
+    token = request.headers.get('Authorization')
+    user_info = auth.decode_func(token)
+    role = user_info.get("role")
+
+    # 只有顾客(0)、商家(2)、配送员(3)能更新状态
+    #if role not in [0, 2, 3]:
+        #return jsonify(status=1001, msg="无权限更新订单状态")
+
+    # 更新数据库
+    db.session.execute(
+        text('UPDATE oorder SET checked = :new_status WHERE order_id = :oid'),
+        {"new_status": new_status, "oid": order_id}
+    )
+    db.session.commit()
+    return jsonify(status=200, msg="订单状态已更新")
+
+
 
 # 管理员查看正在配送的订单
 @app.route("/api/manager/sending", methods=["GET"])
@@ -527,6 +602,40 @@ def manager_sending():
         })
     return jsonify(status=200, tabledata=sending_list)
 
+@app.route("/api/dispatcher/orders/count", methods=["GET"])
+@cross_origin()
+def dispatcher_order_count():
+    #token = request.headers.get('token')
+    token = request.headers.get('Authorization')
+    user_info = auth.decode_func(token)
+
+    #if user_info.get("role") != 3:
+        #return jsonify(status=1001, msg="无权限访问")
+
+    phone = user_info.get("telephone")
+
+    # 根据手机号查配送员 ID
+    dispatcher = db.session.execute(
+        text('SELECT dispatcher_id FROM dispatcher WHERE dispatcher_phone = :phone'),
+        {"phone": phone}
+    ).first()
+
+    if not dispatcher:
+        return jsonify(status=1002, msg="未找到对应配送员账号")
+
+    dispatcher_id = dispatcher[0]
+
+    # 查询配送中订单数量（checked = 4）
+    count = db.session.execute(
+        text('SELECT COUNT(*) FROM wuliu '
+             'JOIN oorder ON wuliu.order_id = oorder.order_id '
+             'WHERE wuliu.disp_id = :did'),
+        {"did": dispatcher_id}
+    ).scalar()
+
+    return jsonify(status=200, data={"dispatcher_id": dispatcher_id, "current_orders": count})
+
+
 
 # 管理员查看已配送订单
 @app.route("/api/manager/sended", methods=["GET"])
@@ -547,6 +656,35 @@ def manager_sended():
             "deliver_time": row[8]
         })
     return jsonify(status=200, tabledata=sended_list)
+
+
+@app.route("/api/dispatcher/orders/list", methods=["GET"])
+@cross_origin()
+def list_all_dispatcher_orders():
+    # 查询所有配送员及其派送中订单数量（checked ∈ 1~4）
+    result = db.session.execute(text("""
+        SELECT 
+            d.dispatcher_id,
+            d.dispatcher_name,
+            d.dispatcher_phone,
+            COUNT(o.order_id) AS current_orders
+        FROM dispatcher d
+        LEFT JOIN wuliu w ON d.dispatcher_id = w.disp_id
+        LEFT JOIN oorder o ON w.order_id = o.order_id AND o.checked IN (1, 2, 3, 4)
+        GROUP BY d.dispatcher_id, d.dispatcher_name, d.dispatcher_phone
+    """)).fetchall()
+
+    # 构造返回数据
+    data = []
+    for row in result:
+        data.append({
+            "dispatcher_id": row[0],
+            "dispatcher_name": row[1],
+            "dispatcher_phone": row[2],
+            "current_orders": row[3]
+        })
+
+    return jsonify(status=200, data=data)
 
 
 # 启动应用
