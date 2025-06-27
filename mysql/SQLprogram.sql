@@ -51,7 +51,7 @@ CREATE TABLE `oorder`  (
   `cons_phone` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
   `cons_name` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
   `cons_addre` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NOT NULL,
-  `checked` int NULL DEFAULT 0,
+  `checked` int NULL DEFAULT 0 COMMENT '订单状态：0-未派单，1-已揽单，2-商家备货中，3-已发货，4-派送中，5-已送达',
   `create_time` varchar(50) CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci NULL DEFAULT NULL,
   PRIMARY KEY (`order_id`) USING BTREE,
   UNIQUE INDEX `order_id`(`order_id`) USING BTREE,
@@ -69,6 +69,22 @@ CREATE TABLE `oorder`  (
 INSERT INTO `oorder` VALUES (1, '美味便当', 18, '网上订餐', '13900000001', '张铁林', '6栋602', 0, '2023-10-11 11:15:00');
 INSERT INTO `oorder` VALUES (2, '酸菜鱼盖饭', 16, '网上订餐', '13900000002', '刘德华', '5栋104', 2, '2023-10-11 11:20:00');
 INSERT INTO `oorder` VALUES (3, '红烧鸡腿饭', 19, '人工订餐', '13900000003', '赵敏', '7栋305', 0, '2023-10-11 11:25:00');
+
+-- 订单状态字典
+DROP TABLE IF EXISTS `order_status_dict`;
+CREATE TABLE order_status_dict (
+  status_code INT PRIMARY KEY,
+  status_desc VARCHAR(50) NOT NULL
+);
+
+INSERT INTO order_status_dict VALUES
+(0, '未派单'),
+(1, '已揽单'),
+(2, '商家备货中'),
+(3, '已发货'),
+(4, '派送中'),
+(5, '已送达');
+
 
 -- 订餐方式统计表
 DROP TABLE IF EXISTS `orderway`;
@@ -180,7 +196,7 @@ SELECT oorder.order_id AS order_id,
 FROM oorder
 JOIN wuliu ON oorder.order_id = wuliu.order_id
 JOIN dispatcher ON wuliu.disp_id = dispatcher.dispatcher_id
-WHERE oorder.checked = 2;
+WHERE oorder.checked = 5;
 
 -- 正在配送订单视图
 DROP VIEW IF EXISTS `sending_order`;
@@ -198,7 +214,7 @@ SELECT oorder.order_id AS order_id,
 FROM oorder
 JOIN wuliu ON oorder.order_id = wuliu.order_id
 JOIN dispatcher ON wuliu.disp_id = dispatcher.dispatcher_id
-WHERE oorder.checked = 1;
+WHERE oorder.checked IN (1, 2, 3, 4);
 
 -- 插入订单时更新订餐方式的计数
 DROP TRIGGER IF EXISTS `order_insert`;
